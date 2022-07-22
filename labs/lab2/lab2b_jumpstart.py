@@ -3,9 +3,8 @@ Copyright MIT and Harvey Mudd College
 MIT License
 Summer 2020
 
-Lab 3B - Depth Camera Cone Parking
+Lab 2B - Color Image Cone Parking
 """
-
 RealCar = False
 # RealCar = True
 # Change the line above to true when we are ready to test on the real car!
@@ -97,41 +96,7 @@ contour_center = None  # The (pixel row, pixel column) of contour
 contour_area = 0  # The area of contour
 cur_mode = Mode.forward
 
-GOAL_DISTANCE = 30
-########################################################################################
-########################################################################################
-########################################################################################
-#
-# To fine-tune your car you may need to change values within this section. 
-# 
-# >> Constants
-# The smallest contour we will recognize as a valid contour
-MIN_DISTANCE = 25
-# MIN_CONTOUR_AREA = 30 # Default
 
-# Area of the cone contour when we should switch to reverse while aligning
-REVERSE_DISTANCE = GOAL_DISTANCE * 0.9
-# REVERSE_AREA = GOAL_AREA * 0.4 # Default
-
-# Area of the cone contour when we should switch to forward while aligning
-FORWARD_DISTANCE = 200
-# FORWARD_AREA = GOAL_AREA * 0.2 # Default
-
-# Speed to use in parking and aligning modes
-PARK_SPEED = 0.25
-# PARK_SPEED = 0.25 # Default
-
-ALIGN_SPEED = 0.75
-# ALIGN_SPEED = 0.75 # Default
-
-# If desired speed/angle is under these thresholds, they are considered "close enough"
-SPEED_THRESHOLD = 0.04
-# SPEED_THRESHOLD = 0.04 # Default
-
-ANGLE_THRESHOLD = 0.1
-# ANGLE_THRESHOLD = 0.1 # Default
-
-center_distance = None
 
 ########################################################################################
 # Functions
@@ -221,13 +186,10 @@ def update():
     else: # if a cone is found, run the next section of code
         # Use proportional control to set wheel angle based on contour x position
         angle = rc_utils.remap_range(contour_center[1], 0, rc.camera.get_width(), -1, 1)
-
-        depth_image = rc.camera.get_depth_image()
-        center_distance = rc_utils.get_depth_image_center_distance(depth_image)
-
+        
         # PARK MODE: Move forward or backward until contour_area is GOAL_AREA
         if cur_mode == Mode.park:
-            speed = rc_utils.remap_range(center_distance, GOAL_DISTANCE * 2, GOAL_DISTANCE, 1.0, 0.0)
+            speed = rc_utils.remap_range(contour_area, GOAL_AREA / 2, GOAL_AREA, 1.0, 0.0)
             speed = rc_utils.clamp(speed, -PARK_SPEED, PARK_SPEED)
 
             # If speed is close to 0, round to 0 to "park" the car
@@ -236,16 +198,16 @@ def update():
 
             # If the angle is no longer correct, choose mode based on area
             if abs(angle) > ANGLE_THRESHOLD:
-                cur_mode = Mode.forward if center_distance < FORWARD_DISTANCE else Mode.reverse
+                cur_mode = Mode.forward if contour_area < FORWARD_AREA else Mode.reverse
 
         
         # FORWARD MODE: Move forward until area is greater than REVERSE_AREA
         elif cur_mode == Mode.forward:
-            speed = rc_utils.remap_range(center_distance, MIN_DISTANCE, REVERSE_DISTANCE, 1.0, 0.0)
+            speed = rc_utils.remap_range(contour_area, MIN_CONTOUR_AREA, REVERSE_AREA, 1.0, 0.0)
             speed = rc_utils.clamp(speed, 0, ALIGN_SPEED)
 
             # Once we pass REVERSE_AREA, switch to reverse mode
-            if contour_area < REVERSE_DISTANCE:
+            if contour_area > REVERSE_AREA:
                 cur_mode = Mode.reverse
 
             # If we are close to the correct angle, switch to park mode
@@ -255,12 +217,12 @@ def update():
         # REVERSE MODE: move backward until area is less than FORWARD_AREA
         else:
             speed = rc_utils.remap_range(
-                center_distance, REVERSE_DISTANCE, FORWARD_DISTANCE, -1.0, 0.0
+                contour_area, REVERSE_AREA, FORWARD_AREA, -1.0, 0.0
             )
             speed = rc_utils.clamp(speed, -ALIGN_SPEED, 0)
 
             # Once we pass FORWARD_AREA, switch to forward mode
-            if center_distance > FORWARD_DISTANCE:
+            if contour_area < FORWARD_AREA:
                 cur_mode = Mode.forward
 
             # If we are close to the correct angle, switch to park mode
