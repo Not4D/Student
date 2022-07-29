@@ -1,11 +1,3 @@
-"""
-Copyright MIT and Harvey Mudd College
-MIT License
-Summer 2020
-
-Lab 2A - Color Image Line Following
-"""
-
 ########################################################################################
 # Imports
 ########################################################################################
@@ -13,6 +5,7 @@ Lab 2A - Color Image Line Following
 import sys
 import cv2 as cv
 import numpy as np
+import enum
 
 sys.path.insert(1, "../../library")
 import racecar_core
@@ -48,14 +41,14 @@ green_hsv_min = (35, 100, 40)
 green_hsv_max = (78,255, 255)
 GREEN = (green_hsv_min, green_hsv_max)
 
-yellow_hsv_min = (15, 145, 40)
+yellow_hsv_min = (15, 150, 40)
 yellow_hsv_max = (40,255, 255)
 YELLOW = (yellow_hsv_min, yellow_hsv_max)
 
 hsv_lower = (160,100,170)
 hsv_upper = (176,255,255)
-
 ORANGE = (hsv_lower, hsv_upper)
+
 # >> Inialize Variables
 speed = 0.0  # The current speed of the car
 angle = 0.0  # The current angle of the car's wheels
@@ -63,6 +56,57 @@ contour_center = None  # The (pixel row, pixel column) of contour
 contour_area = 0  # The area of contour
 forwardSpeed = 0
 backSpeed = 0
+
+# Area of the cone contour when we are the correct distance away (must be tuned)
+# GOAL_AREA = 27435.5
+GOAL_AREA = 22000
+
+########################################################################################
+########################################################################################
+########################################################################################
+#
+# To fine-tune your car you may need to change values within this section. 
+# 
+# >> Constants
+# The smallest contour we will recognize as a valid contour
+MIN_CONTOUR_AREA = 30
+# MIN_CONTOUR_AREA = 30 # Default
+
+# Area of the cone contour when we should switch to reverse while aligning
+REVERSE_AREA = GOAL_AREA * 0.25
+# REVERSE_AREA = GOAL_AREA * 0.4 # Default
+
+# Area of the cone contour when we should switch to forward while aligning
+FORWARD_AREA = GOAL_AREA * 0.2
+# FORWARD_AREA = GOAL_AREA * 0.2 # Default
+
+# Speed to use in parking and aligning modes
+PARK_SPEED = 0.6
+# PARK_SPEED = 0.25 # Default
+
+ALIGN_SPEED = 0.7
+# ALIGN_SPEED = 0.75 # Default
+
+# If desired speed/angle is under these thresholds, they are considered "close enough"
+SPEED_THRESHOLD = 0.04
+# SPEED_THRESHOLD = 0.04 # Default
+
+ANGLE_THRESHOLD = 0.1
+# ANGLE_THRESHOLD = 0.1 # Default
+
+
+class Mode(enum.IntEnum):
+    park = 0
+    forward = 1
+    reverse = 2
+    
+    
+# >> Initialize these Variables
+speed = 0.0  # The current speed of the car
+angle = 0.0  # The current angle of the car's wheels
+contour_center = None  # The (pixel row, pixel column) of contour
+contour_area = 0  # The area of contour
+cur_mode = Mode.forward
 
 ########################################################################################
 # Functions
@@ -100,6 +144,42 @@ def remap_range(
     
     return val
 
+def update_contour_one():
+    """
+    Finds contours in the current color image and uses them to update contour_center
+    and contour_area
+    """
+    global contour_center
+    global contour_area
+
+    image = rc.camera.get_color_image()
+
+    if image is None:
+        contour_center = None
+        contour_area = 0
+    else:
+        # Find all of the orange contours
+        contours = rc_utils.find_contours(image, ORANGE[0], ORANGE[1])
+
+        # Select the largest contour
+        contour = rc_utils.get_largest_contour(contours, MIN_CONTOUR_AREA)
+
+        if contour is not None:
+            # Calculate contour information
+            contour_center = rc_utils.get_contour_center(contour)
+            contour_area = rc_utils.get_contour_area(contour)
+
+            # Draw contour onto the image
+            rc_utils.draw_contour(image, contour)
+            rc_utils.draw_circle(image, contour_center)
+
+        else:
+            contour_center = None
+            contour_area = 0
+
+        # Display the image to the screen
+        # rc.display.show_color_image(image)
+
 def update_contour():
     """
     Finds contours in the current color image and uses them to update contour_center
@@ -121,7 +201,6 @@ def update_contour():
 ########################################################################################
 ########################################################################################
 ########################################################################################
-
         # TODO (challenge 1): Search for multiple tape colors with a priority order
         # (currently we only search for blue)
         # Find all of the blue contours
@@ -206,49 +285,121 @@ def update():
     global angle
 
     # Search for contours in the current color image
-    update_contour()
 
-    
+    if rc.controller.is_down(rc.controller.Button.Y):
+        update_contour_one()
+        # If no cone is found, stop
+        if contour_center is None or contour_area == 0:
+            speed = 0 # set the speed for the car to stop
+            angle = 0 # set the angle for the car to stop pointing straight ahead
+        
+        else: # if a cone is found, run the next section of code
+            # Use proportional control to set wheel angle based on contour x position
+            angle = rc_utils.remap_range(contour_center[1], 0, rc.camera.get_width(), -1, 1)
+        
+        # PARK MODE: Move forward or backward until contour_area is GOAL_AREA
+            if cur_mode == Mode.park:
+                speed = rc_utils.remap_range(contour_area, GOAL_AREA / 2, GOAL_AREA, 1.0, 0.0) * 0.85
+                speed = rc_utils.clamp(speed, -PARK_SPEED, PARK_SPEED)
 
-    # Choose an angle based on contour_center
-    # If we could not find a contour, keep the previous angle
-    if contour_center is not None:
+            # If speed is close to 0, round to 0 to "park" the car
+                if -SPEED_THRESHOLD < speed < SPEED_THRESHOLD:
+                    speed = 0
+
+            # If the angle is no longer correct, choose mode based on area
+                if abs(angle) > ANGLE_THRESHOLD:
+                    cur_mode = Mode.forward if contour_area < FORWARD_AREA else Mode.reverse
+
+        
+        # FORWARD MODE: Move forward until area is greater than REVERSE_AREA
+            elif cur_mode == Mode.forward:
+                speed = rc_utils.remap_range(contour_area, MIN_CONTOUR_AREA, REVERSE_AREA, 1.0, 0.0) * 0.85
+                speed = rc_utils.clamp(speed, 0, ALIGN_SPEED)
+
+            # Once we pass REVERSE_AREA, switch to reverse mode
+                if contour_area > REVERSE_AREA:
+                    cur_mode = Mode.reverse
+
+            # If we are close to the correct angle, switch to park mode
+                if abs(angle) < ANGLE_THRESHOLD:
+                    cur_mode = Mode.park
+
+        # REVERSE MODE: move backward until area is less than FORWARD_AREA
+            else:
+                speed = rc_utils.remap_range(
+                    contour_area, REVERSE_AREA, FORWARD_AREA, -1.0, 0.0
+                ) * 0.85
+                speed = rc_utils.clamp(speed, -ALIGN_SPEED, 0)
+
+            # Once we pass FORWARD_AREA, switch to forward mode
+                if contour_area < FORWARD_AREA:
+                    cur_mode = Mode.forward
+
+            # If we are close to the correct angle, switch to park mode
+                if abs(angle) < ANGLE_THRESHOLD:
+                    cur_mode = Mode.park
+
+        # Reverse the angle if we are driving backward
+            if speed < 0:
+                angle *= -1
+
+    # If the right button is not held down (as a kill switch)
+    # 
+    # if rc.controller.is_down(rc.controller.Button.RB)==False and RealCar == True:
+     #   speed = 0
+
+        rc.drive.set_speed_angle(speed, angle)        
+        
+
+    # Print the current speed and angle when the A button (1 key) is held down
+        if rc.controller.is_down(rc.controller.Button.A):
+            print("Speed:", speed, "Angle:", angle)
+
+    # Print the center and area of the largest contour when B button (2 key) is held down
+        if rc.controller.is_down(rc.controller.Button.B):
+            if contour_center is None:
+                print("No contour found")
+            else:
+                print("Center:", contour_center, "Area:", contour_area)
+
+    elif rc.controller.is_down(rc.controller.Button.X):
+        update_contour()
+        if contour_center is not None:
 ########################################################################################
 ########################################################################################
 ########################################################################################
 
         # Current implementation: bang-bang control (very choppy)
         # TODO (warmup): Implement a smoother way to follow the line
-        angle = remap_range(contour_center[1], 0, 640, -1, 1)
+            angle = remap_range(contour_center[1], 0, 640, -1, 1)
 
     # Use the triggers to control the car's speed
-    forwardSpeed = rc.controller.get_trigger(rc.controller.Trigger.RIGHT)
-    backSpeed = rc.controller.get_trigger(rc.controller.Trigger.LEFT)
-    speed = (forwardSpeed - backSpeed) * 0.85
+        forwardSpeed = rc.controller.get_trigger(rc.controller.Trigger.RIGHT)
+        backSpeed = rc.controller.get_trigger(rc.controller.Trigger.LEFT)
+        speed = (forwardSpeed - backSpeed) * 0.85
 
-    if speed <= 0.4:
-        remap_range(speed, 0, 0.8, 0, 1)
+        if speed <= 0.4:
+            remap_range(speed, 0, 0.8, 0, 1)
     
-    rc.drive.set_speed_angle(speed, angle)
+        rc.drive.set_speed_angle(speed, angle)
 
     # Print the current speed and angle when the A button is held down
-    if rc.controller.is_down(rc.controller.Button.A):
-        print("Speed:", speed, "Angle:", angle)
+        if rc.controller.is_down(rc.controller.Button.A):
+            print("Speed:", speed, "Angle:", angle)
 
     # Print the center and area of the largest contour when B is held down
-    if rc.controller.is_down(rc.controller.Button.B):
-        if contour_center is None:
-            print("No contour found")
-        else:
-            print("Center:", contour_center, "Area:", contour_area)
-
+        if rc.controller.is_down(rc.controller.Button.B):
+            if contour_center is None:
+                print("No contour found")
+            else:
+                print("Center:", contour_center, "Area:", contour_area)
 
 def update_slow():
     """
     After start() is run, this function is run at a constant rate that is slower
     than update().  By default, update_slow() is run once per second
     """
-    # Print a line of ascii text denoting the contour area and x-position
+    # Print a line of ascii text denoting the contour area and x position
     if rc.camera.get_color_image() is None:
         # If no image is found, print all X's and don't display an image
         print("X" * 10 + " (No image) " + "X" * 10)

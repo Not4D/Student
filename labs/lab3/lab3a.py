@@ -74,19 +74,16 @@ def update():
     # TODO (warmup): Prevent forward movement if the car is about to hit something.
     # Allow the user to override safety stop by holding the right bumper.
     cropped = crop_image(depth_image)
-    # center_distance = rc_utils.get_depth_image_center_distance(cropped)
     final_test_img = (cropped - 0.01) % 10000
     center_distance = rc_utils.get_depth_image_center_distance(final_test_img)
 
-    # if rc.controller.is_down(rc.controller.Button.RB):
-     #   speed = speed
-    # elif speed < 0:
-        # speed = speed
-   # elif center_distance <= stopDistance:
+
     closest = rc_utils.get_closest_pixel(final_test_img, kernel_size = 5)
     dC = depth_image[closest[0], closest[1]]
-    
-    if speed < 0:
+
+    if rc.controller.is_down(rc.controller.Button.RB):
+        speed = speed
+    elif speed < 0:
         speed = speed
     elif  dC < slowDistance:
         speed = rc_utils.remap_range(dC, stopDistance, slowDistance, 0.0, 1.0)

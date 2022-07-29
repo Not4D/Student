@@ -43,8 +43,8 @@ rc = racecar_core.create_racecar()
 # We might also have a shadow making the color sometimes appear darker than others
 # What is the best HSV range to only find the tape we want and avoid distractions?
 
-hsv_lower = (10,1,2)
-hsv_upper = (20,255,255)
+hsv_lower = (160,100,170)
+hsv_upper = (179,255,255)
 ORANGE = (hsv_lower, hsv_upper)
 
 # Area of the cone contour when we are the correct distance away (must be tuned)
@@ -97,7 +97,7 @@ contour_center = None  # The (pixel row, pixel column) of contour
 contour_area = 0  # The area of contour
 cur_mode = Mode.forward
 
-GOAL_DISTANCE = 30
+GOAL_DISTANCE = 300
 ########################################################################################
 ########################################################################################
 ########################################################################################
@@ -106,15 +106,12 @@ GOAL_DISTANCE = 30
 # 
 # >> Constants
 # The smallest contour we will recognize as a valid contour
-MIN_DISTANCE = 25
-# MIN_CONTOUR_AREA = 30 # Default
-
 # Area of the cone contour when we should switch to reverse while aligning
-REVERSE_DISTANCE = GOAL_DISTANCE * 0.9
+REVERSE_DISTANCE = 380
 # REVERSE_AREA = GOAL_AREA * 0.4 # Default
 
 # Area of the cone contour when we should switch to forward while aligning
-FORWARD_DISTANCE = 200
+FORWARD_DISTANCE = 1000
 # FORWARD_AREA = GOAL_AREA * 0.2 # Default
 
 # Speed to use in parking and aligning modes
@@ -190,7 +187,7 @@ def start():
     rc.drive.set_speed_angle(speed, angle)
 
     # Set update_slow to refresh every half second
-    rc.set_update_slow_time(0.5)
+    rc.set_update_slow_time(0.25)
 
     # Begin in "forward" mode
     cur_mode = Mode.forward
@@ -223,16 +220,17 @@ def update():
         angle = rc_utils.remap_range(contour_center[1], 0, rc.camera.get_width(), -1, 1)
 
         depth_image = rc.camera.get_depth_image()
-        center_distance = rc_utils.get_depth_image_center_distance(depth_image)
-
+        blur = cv.GaussianBlur(depth_image, (5, 5), 0)
+        center_distance = blur[contour_center[0], contour_center[1]]
+        #print('distance of contour center = '+str(center_distance))
         # PARK MODE: Move forward or backward until contour_area is GOAL_AREA
         if cur_mode == Mode.park:
-            speed = rc_utils.remap_range(center_distance, GOAL_DISTANCE * 2, GOAL_DISTANCE, 1.0, 0.0)
+            speed = rc_utils.remap_range(center_distance, GOAL_DISTANCE * 10, GOAL_DISTANCE, 1.0, 0.0)
             speed = rc_utils.clamp(speed, -PARK_SPEED, PARK_SPEED)
 
             # If speed is close to 0, round to 0 to "park" the car
-            if -SPEED_THRESHOLD < speed < SPEED_THRESHOLD:
-                speed = 0
+            # if -SPEED_THRESHOLD < speed < SPEED_THRESHOLD:
+                # speed = 0
 
             # If the angle is no longer correct, choose mode based on area
             if abs(angle) > ANGLE_THRESHOLD:
@@ -241,11 +239,12 @@ def update():
         
         # FORWARD MODE: Move forward until area is greater than REVERSE_AREA
         elif cur_mode == Mode.forward:
-            speed = rc_utils.remap_range(center_distance, MIN_DISTANCE, REVERSE_DISTANCE, 1.0, 0.0)
+            speed = rc_utils.remap_range(center_distance, 0, REVERSE_DISTANCE, 1.0, 0.0)
             speed = rc_utils.clamp(speed, 0, ALIGN_SPEED)
+            #print('Trying to move forward at speed: ',speed)
 
             # Once we pass REVERSE_AREA, switch to reverse mode
-            if contour_area < REVERSE_DISTANCE:
+            if center_distance <= REVERSE_DISTANCE:
                 cur_mode = Mode.reverse
 
             # If we are close to the correct angle, switch to park mode
@@ -278,7 +277,10 @@ def update():
 
     rc.drive.set_speed_angle(speed, angle)        
         
-
+    if speed <= 0:
+        speed = rc_utils.remap_range(speed,-1, 0, -1, -0.5)
+    else:
+        speed = rc_utils.remap_range(speed, 0, 1, 0.5, 1)
     # Print the current speed and angle when the A button (1 key) is held down
     if rc.controller.is_down(rc.controller.Button.A):
         print("Speed:", speed, "Angle:", angle)
@@ -288,7 +290,7 @@ def update():
         if contour_center is None:
             print("No contour found")
         else:
-            print("Center:", contour_center, "Area:", contour_area)
+            print("Center:", contour_center, "Area:", contour_area, "Distance: ", center_distance)
 
 
 def update_slow():

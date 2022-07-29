@@ -5,7 +5,7 @@ Summer 2020
 
 Lab 2B - Color Image Cone Parking
 """
-RealCar = False
+RealCar = True
 # RealCar = True
 # Change the line above to true when we are ready to test on the real car!
 # If on the real car hold down the right bumper button to let the car drive
@@ -42,12 +42,14 @@ rc = racecar_core.create_racecar()
 # We might also have a shadow making the color sometimes appear darker than others
 # What is the best HSV range to only find the tape we want and avoid distractions?
 
-hsv_lower = (10,1,2)
-hsv_upper = (20,255,255)
+hsv_lower = (160,100,170)
+hsv_upper = (176,255,255)
+
 ORANGE = (hsv_lower, hsv_upper)
 
 # Area of the cone contour when we are the correct distance away (must be tuned)
-GOAL_AREA = 27435.5
+# GOAL_AREA = 27435.5
+GOAL_AREA = 22000
 
 ########################################################################################
 ########################################################################################
@@ -61,7 +63,7 @@ MIN_CONTOUR_AREA = 30
 # MIN_CONTOUR_AREA = 30 # Default
 
 # Area of the cone contour when we should switch to reverse while aligning
-REVERSE_AREA = GOAL_AREA * 1.25
+REVERSE_AREA = GOAL_AREA * 0.25
 # REVERSE_AREA = GOAL_AREA * 0.4 # Default
 
 # Area of the cone contour when we should switch to forward while aligning
@@ -69,10 +71,10 @@ FORWARD_AREA = GOAL_AREA * 0.2
 # FORWARD_AREA = GOAL_AREA * 0.2 # Default
 
 # Speed to use in parking and aligning modes
-PARK_SPEED = 0.25
+PARK_SPEED = 0.6
 # PARK_SPEED = 0.25 # Default
 
-ALIGN_SPEED = 0.75
+ALIGN_SPEED = 0.7
 # ALIGN_SPEED = 0.75 # Default
 
 # If desired speed/angle is under these thresholds, they are considered "close enough"
@@ -137,7 +139,7 @@ def update_contour():
             contour_area = 0
 
         # Display the image to the screen
-        rc.display.show_color_image(image)
+        # rc.display.show_color_image(image)
 
 
 def start():
@@ -155,7 +157,7 @@ def start():
     rc.drive.set_speed_angle(speed, angle)
 
     # Set update_slow to refresh every half second
-    rc.set_update_slow_time(0.5)
+    rc.set_update_slow_time(0.25)
 
     # Begin in "forward" mode
     cur_mode = Mode.forward
@@ -189,7 +191,7 @@ def update():
         
         # PARK MODE: Move forward or backward until contour_area is GOAL_AREA
         if cur_mode == Mode.park:
-            speed = rc_utils.remap_range(contour_area, GOAL_AREA / 2, GOAL_AREA, 1.0, 0.0)
+            speed = rc_utils.remap_range(contour_area, GOAL_AREA / 2, GOAL_AREA, 1.0, 0.0) * 0.85
             speed = rc_utils.clamp(speed, -PARK_SPEED, PARK_SPEED)
 
             # If speed is close to 0, round to 0 to "park" the car
@@ -203,7 +205,7 @@ def update():
         
         # FORWARD MODE: Move forward until area is greater than REVERSE_AREA
         elif cur_mode == Mode.forward:
-            speed = rc_utils.remap_range(contour_area, MIN_CONTOUR_AREA, REVERSE_AREA, 1.0, 0.0)
+            speed = rc_utils.remap_range(contour_area, MIN_CONTOUR_AREA, REVERSE_AREA, 1.0, 0.0) * 0.85
             speed = rc_utils.clamp(speed, 0, ALIGN_SPEED)
 
             # Once we pass REVERSE_AREA, switch to reverse mode
@@ -218,7 +220,7 @@ def update():
         else:
             speed = rc_utils.remap_range(
                 contour_area, REVERSE_AREA, FORWARD_AREA, -1.0, 0.0
-            )
+            ) * 0.85
             speed = rc_utils.clamp(speed, -ALIGN_SPEED, 0)
 
             # Once we pass FORWARD_AREA, switch to forward mode
@@ -235,8 +237,8 @@ def update():
 
     # If the right button is not held down (as a kill switch)
     # 
-    if rc.controller.is_down(rc.controller.Button.RB)==False and RealCar == True:
-        speed = 0
+    # if rc.controller.is_down(rc.controller.Button.RB)==False and RealCar == True:
+     #   speed = 0
 
     rc.drive.set_speed_angle(speed, angle)        
         
